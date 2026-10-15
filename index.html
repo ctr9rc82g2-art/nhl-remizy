@@ -145,7 +145,18 @@ const $ = id => document.getElementById(id);
 let rowsData = [];
 let selected = null;
 
+
 async function getJSON(url) {
+  const proxyUrl = "https://proxy.cors.dev/" + url;
+  const response = await fetch(proxyUrl);
+
+  if (!response.ok) {
+    throw new Error("Chyba pri načítaní dát: HTTP " + response.status);
+  }
+
+  return await response.json();
+}
+
   // Najprv skúsime priamy prístup. Ak prehliadač blokuje požiadavku,
   // skúsime verejný CORS proxy.
   try {
