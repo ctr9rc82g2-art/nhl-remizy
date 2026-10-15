@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="sk">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#101827">
+<title>NHL – remízy po 60 minútach</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1220;--panel:#131e30;--line:#26364d;--muted:#a9b7ca;--accent:#7dd3fc}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:#f4f7fb;font:16px -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif}
+main{max-width:1000px;margin:auto;padding:20px 14px 50px}h1{font-size:26px;margin:8px 0}p{color:var(--muted);line-height:1.5}.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px;margin:14px 0}
+button,input,select{font:inherit;border-radius:10px;border:1px solid var(--line);padding:11px;background:#0b1220;color:#fff}button{background:#075985;border:0;font-weight:700;cursor:pointer}button:disabled{opacity:.55}input{width:100%;margin:8px 0} .controls{display:grid;grid-template-columns:1fr 1fr;gap:10px}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.stat{background:#0b1220;border-radius:12px;padding:12px}.stat small{display:block;color:var(--muted)}.stat b{font-size:24px;display:block;margin-top:4px}
+.status{font-size:14px;color:var(--muted);white-space:pre-wrap}.tablewrap{overflow:auto}table{border-collapse:collapse;width:100%;min-width:650px}th,td{text-align:left;padding:10px;border-bottom:1px solid var(--line);font-size:14px}th{color:var(--muted)}tr[data-team]{cursor:pointer}tr[data-team]:hover{background:#1b2b41}.pill{border-radius:999px;background:#18334b;padding:4px 8px;font-size:12px}.small{font-size:13px}.warn{color:#fbbf24}
+@media(max-width:520px){.controls{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr}.stats .stat:last-child{grid-column:span 2}}
+</style>
+</head>
+<body><main>
+<h1>🏒 NHL – remízy po 60 minútach</h1>
+<p>Sezóna 2026/2027 · počíta sa iba stav po 3. tretine. Predĺženie a nájazdy sa nezapočítavajú.</p>
+<div class="panel">
+ <div class="controls">
+  <button id="load">Načítať / obnoviť štatistiky</button>
+  <select id="sort"><option value="ties">Zoradiť: najviac remíz</option><option value="recent">Najdlhšie bez remízy</option><option value="name">Podľa názvu</option></select>
+ </div>
+ <p class="status" id="status">Stlač „Načítať / obnoviť štatistiky“. Pri prvom načítaní môže spracovanie trvať dlhšie.</p>
+ <div class="stats">
+  <div class="stat"><small>Skontrolované zápasy</small><b id="games">—</b></div>
+  <div class="stat"><small>Remízy po 60 min.</small><b id="ties">—</b></div>
+  <div class="stat"><small>Skontrolované mužstvá</small><b id="teams">—</b></div>
+ </div>
+</div>
+<div class="panel"><h2 style="font-size:19px">Mužstvá</h2><input id="search" placeholder="Vyhľadať mužstvo…"><div class="tablewrap"><table><thead><tr><th>Mužstvo</th><th>Zápasy skontrolované</th><th>Remízy po 60 min.</th><th>Posledná remíza</th><th>Zápasov od remízy</th></tr></thead><tbody id="rows"><tr><td colspan="5">Zatiaľ bez údajov.</td></tr></tbody></table></div></div>
+<div class="panel"><h2 id="detailTitle" style="font-size:19px">Zápasy mužstva</h2><p class="small">Vyber mužstvo v tabuľke a zobrazia sa zápasy, ktoré sa podarilo vyhodnotiť.</p><div class="tablewrap"><table><thead><tr><th>Dátum</th><th>Zápas</th><th>Stav po 60 min.</th><th>Konečný stav</th><th>Remíza?</th></tr></thead><tbody id="details"><tr><td colspan="5">Vyber mužstvo.</td></tr></tbody></table></div></div>
+<p class="small">Zdroj dát: verejné NHL API. Ide o neoficiálny pomocný prehľad; rozhranie NHL sa môže zmeniť. Údaje sa načítavajú z internetu a v tomto prototype sa neukladajú natrvalo.</p>
+</main>
+<script>
+const API='https://api-web.nhle.com/v1';
+const SEASON='20262027';
+const teams=[
+['ANA','Anaheim Ducks'],['BOS','Boston Bruins'],['BUF','Buffalo Sabres'],['CGY','Calgary Flames'],['CAR','Carolina Hurricanes'],['CHI','Chicago Blackhawks'],['COL','Colorado Avalanche'],['CBJ','Columbus Blue Jackets'],['DAL','Dallas Stars'],['DET','Detroit Red Wings'],['EDM','Edmonton Oilers'],['FLA','Florida Panthers'],['LAK','Los Angeles Kings'],['MIN','Minnesota Wild'],['MTL','Montreal Canadiens'],['NSH','Nashville Predators'],['NJD','New Jersey Devils'],['NYI','New York Islanders'],['NYR','New York Rangers'],['OTT','Ottawa Senators'],['PHI','Philadelphia Flyers'],['PIT','Pittsburgh Penguins'],['SEA','Seattle Kraken'],['SJS','San Jose Sharks'],['STL','St. Louis Blues'],['TBL','Tampa Bay Lightning'],['TOR','Toronto Maple Leafs'],['UTA','Utah Mammoth'],['VAN','Vancouver Canucks'],['VGK','Vegas Golden Knights'],['WSH','Washington Capitals'],['WPG','Winnipeg Jets']
+];
+const $=id=>document.getElementById(id);
+let rowsData=[],gameData={},selected=null;
+async function getJSON(url){const r=await fetch(url);if(!r.ok)throw new Error('HTTP '+r.status+' pri '+url);return r.json()}
+function teamName(t){return t?.commonName?.default||t?.placeName?.default||t?.name?.default||t?.abbrev||'Neznáme'}
+function dateStr(s){return s||'—'}
+function findPeriodScore(data){
+ // Try the period-by-period linescore in common NHL gamecenter payloads.
+ const candidates=[data?.summary?.scoring,data?.summary?.linescore,data?.linescore,data?.boxscore?.linescore];
+ for(const c of candidates){
+   if(Array.isArray(c)){
+    let h=0,a=0,found=false;
+    for(const p of c){const n=Number(p.periodDescriptor?.number??p.period??p.periodNumber);if(n>=1&&n<=3){h+=Number(p.home??p.homeScore??p.homeTeamScore??0);a+=Number(p.away??p.awayScore??p.awayTeamScore??0);found=true}}
+    if(found)return {home:h,away:a};
+   }
+ }
+ // Derive regulation score from play-by-play goals (only periods 1–3).
+ const plays=data?.plays;
+ if(Array.isArray(plays)){
+   let h=0,a=0;
+   for(const p of plays){
+     const period=Number(p.periodDescriptor?.number??p.period??p.periodNumber);
+     const type=String(p.typeDescKey??p.typeCode??p.type??'').toLowerCase();
+     if(period>=1&&period<=3&&(type.includes('goal')||type==='505')){
+       const side=String(p.details?.eventOwnerTeamId??p.details?.scoringPlayerTeamId??p.details?.teamAbbrev??'');
+       if(p.details?.eventOwnerTeamId===data?.homeTeam?.id||side===data?.homeTeam?.abbrev)h++;
+       else if(p.details?.eventOwnerTeamId===data?.awayTeam?.id||side===data?.awayTeam?.abbrev)a++;
+     }
+   }
+   return {home:h,away:a};
+ }
+ return null;
+}
+async function load(){
+ $('load').disabled=true;rowsData=[];gameData={};$('status').textContent='Načítavam rozpisy mužstiev…';
+ let all=new Map(),failed=[];
+ for(let i=0;i<teams.length;i++){
+   const [abbr,name]=teams[i];
+   $('status').textContent=`Načítavam rozpisy: ${i+1}/${teams.length} – ${name}`;
+   try{
+    const d=await getJSON(`${API}/club-schedule-season/${abbr}/${SEASON}`);
+    for(const g of (d.games||[])) if(g.gameType===2) all.set(g.id,g);
+   }catch(e){failed.push(`${abbr}: rozpis sa nepodarilo načítať`)}
+ }
+ const games=[...all.values()].filter(g=>['OFF','FINAL'].includes(String(g.gameState||'').toUpperCase())||Number(g.gameStateId)>=7);
+ let processed=0,tiesTotal=0;
+ const byTeam={};teams.forEach(([a,n])=>byTeam[a]={abbr:a,name:n,games:[],ties:0,lastTie:null,checked:0});
+ for(let i=0;i<games.length;i++){
+  const g=games[i];$('status').textContent=`Vyhodnocujem zápasy ${i+1}/${games.length}…`;
+  try{
+   const d=await getJSON(`${API}/gamecenter/${g.id}/landing`);
+   let reg=findPeriodScore(d);
+   // Alternative common landing payload: scoring is grouped by period with goals.
+   if(!reg && Array.isArray(d?.summary?.scoring)){
+    let h=0,a=0;for(const p of d.summary.scoring){const pn=Number(p.periodDescriptor?.number||p.period||0);if(pn<=3){h+=Number(p.home||0);a+=Number(p.away||0)}}reg={home:h,away:a}
+   }
+   if(!reg){failed.push(`Zápas ${g.id}: chýba skóre po tretinách`);continue}
+   const home=g.homeTeam?.abbrev||d.homeTeam?.abbrev,away=g.awayTeam?.abbrev||d.awayTeam?.abbrev;
+   const homeName=teams.find(t=>t[0]===home)?.[1]||home,awayName=teams.find(t=>t[0]===away)?.[1]||away;
+   const tie=reg.home===reg.away;
+   const item={date:g.gameDate||d.gameDate,home,away,homeName,awayName,regHome:reg.home,regAway:reg.away,finalHome:g.homeTeam?.score??d.homeTeam?.score??'—',finalAway:g.awayTeam?.score??d.awayTeam?.score??'—',tie};
+   gameData[g.id]=item;processed++;
+   for(const ab of [home,away]) if(byTeam[ab]){byTeam[ab].games.push(item);byTeam[ab].checked++;if(tie){byTeam[ab].ties++;byTeam[ab].lastTie=item.date;}}
+   if(tie)tiesTotal++;
+  }catch(e){failed.push(`Zápas ${g.id}: nepodarilo sa načítať`)}
+ }
+ rowsData=Object.values(byTeam).map(t=>{
+  t.games.sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+  let since=0;
+  for(let i=t.games.length-1;i>=0;i--){if(t.games[i].tie)break;since++}
+  t.since=t.lastTie?since:null;return t;
+ });
+ $('games').textContent=processed;$('ties').textContent=tiesTotal;$('teams').textContent=rowsData.filter(t=>t.checked>0).length;
+ $('status').textContent=`Hotovo. Sezóna 2026/2027, základná časť. Spracovaných zápasov: ${processed}.`+(failed.length?`\nUpozornenie: ${failed.length} položiek sa nepodarilo spracovať; údaje môžu byť neúplné.`:'');
+ render();$('load').disabled=false;
+}
+function render(){
+ const q=$('search').value.toLowerCase(),sort=$('sort').value;
+ let list=rowsData.filter(t=>t.name.toLowerCase().includes(q)||t.abbr.toLowerCase().includes(q));
+ list.sort((a,b)=>sort==='name'?a.name.localeCompare(b.name):sort==='recent'?(b.since??-1)-(a.since??-1):b.ties-a.ties||a.name.localeCompare(b.name));
+ $('rows').innerHTML=list.map(t=>`<tr data-team="${t.abbr}"><td><b>${t.name}</b> <span class="pill">${t.abbr}</span></td><td>${t.checked}</td><td><b>${t.ties}</b></td><td>${dateStr(t.lastTie)}</td><td>${t.since===null?'Zatiaľ žiadna':t.since}</td></tr>`).join('')||'<tr><td colspan="5">Žiadne výsledky.</td></tr>';
+ document.querySelectorAll('tr[data-team]').forEach(tr=>tr.onclick=()=>showTeam(tr.dataset.team));
+}
+function showTeam(abbr){
+ selected=abbr;const t=rowsData.find(x=>x.abbr===abbr);if(!t)return;
+ $('detailTitle').textContent='Zápasy mužstva – '+t.name;
+ const games=[...t.games].reverse();
+ $('details').innerHTML=games.map(g=>`<tr><td>${g.date||'—'}</td><td>${g.awayName} @ ${g.homeName}</td><td>${g.regAway} : ${g.regHome}</td><td>${g.finalAway} : ${g.finalHome}</td><td>${g.tie?'<span class="pill">ÁNO</span>':'Nie'}</td></tr>`).join('')||'<tr><td colspan="5">Zatiaľ bez zápasov.</td></tr>';
+}
+$('load').addEventListener('click',load);$('sort').addEventListener('change',render);$('search').addEventListener('input',render);
+</script></body></html>
