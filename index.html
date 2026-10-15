@@ -81,7 +81,7 @@ async function load(){
    for(const g of (d.games||[])) if(['2','R'].includes(String(g.gameType).toUpperCase())) all.set(g.id,g); ;
    }catch(e){failed.push(`${abbr}: rozpis sa nepodarilo načítať`)}
  }
- const games=[...all.values()].filter(g=>['OFF','FINAL'].includes(String(g.gameState||'').toUpperCase())||Number(g.gameStateId)>=7);
+ const games=[...all.values()].filter(g=>['OFF','FINAL','FINAL overtime','FINAL shootout'].includes(String(g.gameState||'').toUpperCase())||Number(g.gameStateId)>=7);;
  let processed=0,tiesTotal=0;
  const byTeam={};teams.forEach(([a,n])=>byTeam[a]={abbr:a,name:n,games:[],ties:0,lastTie:null,checked:0});
  for(let i=0;i<games.length;i++){
