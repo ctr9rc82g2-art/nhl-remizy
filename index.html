@@ -77,8 +77,7 @@ async function load(){
    const [abbr,name]=teams[i];
    $('status').textContent=`Načítavam rozpisy: ${i+1}/${teams.length} – ${name}`;
    try{
-    const d=await getJSON(`${API}/club-schedule-season/${abbr}/${SEASON}`);
-   for(const g of (d.games||[])) if(['2','R'].includes(String(g.gameType).toUpperCase())) all.set(g.id,g); ;
+    const d=await getJSON(`${API}/club-schedule-season/${abbr}/${for(const g of (d.games||[])) all.set(g.id,g);
    }catch(e){failed.push(`${abbr}: rozpis sa nepodarilo načítať`)}
  }
  const games=[...all.values()];
